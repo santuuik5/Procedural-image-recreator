@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CanvasForge — Generador Procedural de Arte</title>
+<meta name="description" content="Aplicación web en un único archivo que redibuja imágenes de forma procedural en Canvas 2D: puntillismo, pinceladas de óleo, hilorama y teselado. Cero dependencias, cero backend.">
+<style>
+  :root{
+    --bg:#0b0d12;
+    --panel:rgba(18,22,30,0.78);
+    --panel-border:rgba(255,255,255,0.09);
+    --text:#e8eaf2;
+    --muted:#8f9aae;
+    --accent:#7c5cff;
+    --accent-glow:rgba(124,92,255,0.45);
+    --danger:#ff5f7a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;
+  }
+  a{color:var(--accent)}
+
+  /* ---------- Shell ---------- */
+  .shell{
+    position:relative;
+    width:100vw;height:100vh;
+    display:grid;
+    grid-template-rows:auto 1fr;
+  }
+  .topbar{
+    position:sticky;top:0;z-index:20;
+    padding:1.15rem 1.5rem 0.9rem;
+    background:linear-gradient(180deg,rgba(11,13,18,0.92),rgba(11,13,18,0.45));
+    backdrop-filter:blur(18px);
+    border-bottom:1px solid var(--panel-border);
+  }
+  .topbar h1{
+    font-size:1.45rem;letter-spacing:-0.02em;font-weight:800;
+    background:linear-gradient(135deg,#ffffff,#cfd9f2);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  }
+  .topbar h1 span{color:var(--accent)}
+  .tagline{color:var(--muted);font-size:0.82rem;margin-top:0.3rem}
+
+  /* ---------- Workspace ---------- */
+  .workspace{
+    position:relative;
+    width:100%;height:100%;
+    display:grid;
+    grid-template-columns:1fr 330px;
+    gap:0;overflow:hidden;
+    padding:1.5rem 1.5rem 2rem;
+  }
+
+  /* ---------- Stage ---------- */
+  .stage{
+    position:relative;width:100%;height:100%;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:
+      radial-gradient(700px 500px at 40% -10%,rgba(124,92,255,0.09),transparent 55%),
+      radial-gradient(600px 400px at 110% 110%,rgba(255,95,122,0.07),transparent 45%);
+    border-radius:1rem;
+    border:1px solid var(--panel-border);
+    box-shadow:0 28px 56px -14px rgba(0,0,0,0.6);
+  }
+  #canvas{
+    max-width:100%;max-height:78vh;
+    background:#090a0f;
+    border:1px solid var(--panel-border);
+    border-radius:0.6rem;
+    box-shadow:0 0 0 1px rgba(255,255,255,0.03) inset,
+               0 20px 40px -10px rgba(0,0,0,0.45);
+    display:block;
+  }
+
+  /* ---------- Dropzone ---------- */
+  .dropzone{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(11,13,18,0.6);
+    backdrop-filter:blur(12px);
+    border:1px solid var(--panel-border);
+    border-radius:1rem;
+    text-align:center;padding:2.2rem 1.5rem;cursor:pointer;
+    transition:border-color .2s,background .2s,opacity .2s;
+    z-index:5;
+  }
+  .dropzone.dragover{
+    border-color:var(--accent);background:rgba(124,92,255,0.16);
+  }
+  .dropzone svg{width:48px;height:48px;color:var(--muted);margin-bottom:0.85rem}
+  .dropzone p{color:var(--muted);font-size:1rem;line-height:1.5;margin-bottom:0.5rem}
+  .dropzone strong{color:var(--text)}
+  .dropzone input{display:none}
+
+  /* ---------- HUD ---------- */
+  .hud{
+    position:absolute;left:1rem;bottom:1rem;
+    background:rgba(11,13,18,0.75);
+    backdrop-filter:blur(8px);
+    border:1px solid var(--panel-border);
+    border-radius:0.6rem;
+    padding:0.55rem 0.85rem;font-size:0.8rem;color:var(--muted);
+    pointer-events:none;
+  }
+
+  /* ---------- Panel ---------- */
+  .panel{
+    position:sticky;top:1.5rem;align-self:flex-start;
+    width:320px;max-height:calc(100vh - 3rem);
+    overflow-y:auto;
+    background:var(--panel);
+    backdrop-filter:blur(22px);
+    border:1px solid var(--panel-border);
+    border-radius:1rem;
+    padding:1.25rem;
+    box-shadow:0 28px 56px -14px rgba(0,0,0,0.65);
+  }
+  .panel h2{
+    font-size:0.9rem;text-transform:uppercase;letter-spacing:0.14em;
+    color:var(--muted);margin-bottom:1rem;padding-bottom:0.55rem;
+    border-bottom:1px solid var(--panel-border)
+  }
+  .control-group{margin-bottom:1rem}
+  .control-group label{
+    display:flex;justify-content:space-between;font-size:0.82rem;
+    color:var(--muted);margin-bottom:0.42rem
+  }
+  .control-group label span{color:var(--text);font-variant-numeric:tabular-nums}
+  select,input[type=range]{
+    width:100%;background:rgba(7,9,13,0.65);border:1px solid var(--panel-border);
+    border-radius:0.55rem;padding:0.55rem 0.8rem;color:var(--text);
+    font-size:0.88rem;outline:none
+  }
+  select{appearance:none;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--accent) 50%),linear-gradient(135deg,var(--accent) 50%,transparent 50%);
+    background-position:calc(100% - 12px) 14px,calc(100% - 7px) 14px;background-size:6px 6px,6px 6px;background-repeat:no-repeat}
+  input[type=range]{accent-color:var(--accent);cursor:pointer}
+
+  .actions{display:flex;gap:0.5rem;margin-top:1.1rem}
+  button{
+    flex:1;display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;
+    padding:0.6rem 0.75rem;border:1px solid var(--panel-border);
+    border-radius:0.55rem;background:rgba(7,9,13,0.6);color:var(--text);
+    font-size:0.84rem;font-weight:700;cursor:pointer;transition:all .14s
+  }
+  button:hover{border-color:rgba(255,255,255,0.28);background:rgba(255,255,255,0.07)}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent);border-color:transparent;color:#fff;box-shadow:0 0 16px var(--accent-glow)}
+  button.primary:hover{background:#6b4bdd}
+  button.danger{background:rgba(255,95,122,0.14);border-color:rgba(255,95,122,0.35);color:#ff9aa8}
+  button.danger:hover{background:rgba(255,95,122,0.28)}
+  button:disabled{opacity:0.5;cursor:not-allowed}
+
+  .stats{margin-top:1rem;padding-top:0.85rem;border-top:1px solid var(--panel-border);
+    font-size:0.74rem;color:var(--muted);line-height:1.7}
+  .stats b{color:var(--text);font-variant-numeric:tabular-nums}
+  .footnote{margin-top:0.9rem;font-size:0.76rem;color:var(--muted);line-height:1.55}
+
+  /* mobile */
+  @media (max-width:900px){
+    .workspace{grid-template-columns:1fr;padding:1rem}
+    .panel{position:static;width:100%;max-height:none;top:auto}
+  }
+  ::-webkit-scrollbar{width:7px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:4px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <h1>Canvas<span>Forge</span></h1>
+    <p class="tagline">Generador Procedural de Arte · Redibujo de imágenes en Canvas 2D, sin dependencias</p>
+  </div>
+  <div class="workspace">
+    <section class="stage" id="stage">
+      <div class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2l-5-5-5 5ZM17 17l-5-5 5-5M12 22v-20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p>Arrastra una imagen aquí<br>o <strong>haz clic para seleccionar</strong></p>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <canvas id="canvas" width="800" height="600"></canvas>
+      <div class="hud" id="hud">Listo. Carga una imagen para comenzar el redibujo procedural.</div>
+    </section>
+    <aside class="panel">
+      <h2>Controles</h2>
+      <div class="control-group">
+        <label>Estilo procedural<span id="lblMode">-</span></label>
+        <select id="modeSelect">
+          <option value="stippling">Puntillismo Adaptativo</option>
+          <option value="oil">Pinceladas de Óleo</option>
+          <option value="string">Hilorama / Constelaciones</option>
+          <option value="tessellation">Teselado Geométrico</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Densidad<span id="valDensity">1.0×</span></label>
+        <input type="range" id="density" min="0.1" max="2" step="0.1" value="1">
+      </div>
+      <div class="control-group">
+        <label>Velocidad<span id="valSpeed">3×</span></label>
+        <input type="range" id="speed" min="1" max="10" step="1" value="3">
+      </div>
+      <div class="actions">
+        <button id="btnPause" class="primary">Pausar</button>
+        <button id="btnReset">Reiniciar</button>
+        <button id="btnExport" class="danger">Exportar PNG</button>
+      </div>
+      <div class="stats">
+        <div>Trazo: <b id="statStroke">0</b></div>
+        <div>FPS: <b id="statFps">60</b></div>
+        <div>Modo: <b id="statMode">-</b></div>
+      </div>
+      <div class="footnote">
+        Exporta el resultado en cualquier momento con <strong>Exportar PNG</strong>.
+        La imagen se guarda en la resolución de procesamiento sobre fondo blanco.
+      </div>
+    </aside>
+  </div>
+</div>
+<script>
+/* ============================ CanvasForge — Core ============================ */
+(function(){
+  'use strict';
+
+  const canvas = document.getElementById('canvas');
+  const MAX_PROC = 700;            // resolución máxima de procesamiento (lado largo)
+  const BATCH_BASE = 40;           // trazos base por frame
+
+  const state = {
+    mode: 'stippling',
+    running: false,
+    density: 1.0,
+    speed: 3,
+    stroke: 0,
+    ready: false,
+    src: null,                     // {data, w, h} de la imagen original
+    w: 0, h: 0,                    // resolución de procesamiento
+    ctx: null,                     // contexto del lienzo de trabajo
+    gray: null, edge: null,        // mapas precomputados
+    seeds: [],                     // semillas/candidatos precomputados
+    drawnCells: null,              // celdas ya pintadas (teselado)
+    nodes: [],                     // nodos (hilorama)
+    cursor: 0                      // cursor de progreso circular
+  };
+
+  const els = {
+    mode: document.getElementById('modeSelect'),
+    density: document.getElementById('density'),
+    speed: document.getElementById('speed'),
+    btnPause: document.getElementById('btnPause'),
+    btnReset: document.getElementById('btnReset'),
+    btnExport: document.getElementById('btnExport'),
+    file: document.getElementById('fileInput'),
+    drop: document.getElementById('dropzone'),
+    hud: document.getElementById('hud'),
+    valDensity: document.getElementById('valDensity'),
+    valSpeed: document.getElementById('valSpeed'),
+    statStroke: document.getElementById('statStroke'),
+    statFps: document.getElementById('statFps'),
+    statMode: document.getElementById('statMode')
+  };
+
+  /* ---------- utilidades ---------- */
+  function clamp(v,min,max){return v<min?min:v>max?max:v;}
+  function lum(r,g,b){return 0.299*r+0.587*g+0.114*b;}
+  function idx(x,y,w){return (y*w+x)*4;}
+
+  function resizeProcCanvas(w,h){
+    const scale = Math.min(1, MAX_PROC / Math.max(w,h));
+    const pw = Math.max(1,Math.floor(w*scale)), ph = Math.max(1,Math.floor(h*scale));
+    canvas.width = pw; canvas.height = ph;
+    state.w = pw; state.h = ph;
+    state.ctx = canvas.getContext('2d', { willReadFrequently: true });
+    state.ctx.fillStyle = '#ffffff';
+    state.ctx.fillRect(0,0,pw,ph);
+  }
+
+  function loadImageFile(file){
+    if(!file || !file.type.match(/image\//)){
+      return alert('Por favor, selecciona un archivo de imagen válido.');
+    }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function(){
+      URL.revokeObjectURL(url);
+      const tmp = document.createElement('canvas');
+      tmp.width = img.naturalWidth; tmp.height = img.naturalHeight;
+      const tctx = tmp.getContext('2d');
+      tctx.drawImage(img,0,0);
+      const data = tctx.getImageData(0,0,img.naturalWidth,img.naturalHeight);
+      state.src = {data:data.data, w:img.naturalWidth, h:img.naturalHeight};
+      resizeProcCanvas(img.naturalWidth, img.naturalHeight);
+      state.ready = true;
+      state.running = false;
+      state.stroke = 0;
+      initMode();
+      updateStats();
+      els.btnPause.textContent = 'Pausar';
+      els.hud.textContent = 'Imagen lista · pulsa Reanudar para iniciar el redibujo.';
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); alert('No se pudo cargar la imagen.'); };
+    img.src = url;
+  }
+
+  /* ---------- eventos de carga ---------- */
+  els.file.addEventListener('change', function(e){ loadImageFile(e.target.files[0]); });
+  els.drop.addEventListener('click', function(){ els.file.value = null; els.file.click(); });
+  ['dragenter','dragover'].forEach(function(ev){
+    els.drop.addEventListener(ev, function(e){ e.preventDefault(); els.drop.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    els.drop.addEventListener(ev, function(e){ e.preventDefault(); els.drop.classList.remove('dragover'); });
+  });
+  els.drop.addEventListener('drop', function(e){
+    const f = e.dataTransfer.files[0];
+    if(f) loadImageFile(f);
+  });
+  window.addEventListener('dragover', function(e){ e.preventDefault(); });
+  window.addEventListener('drop', function(e){ e.preventDefault(); });
+
+  /* ---------- precomputado de mapas ---------- */
+  function buildMaps(){
+    const w = state.w, h = state.h;
+    const gray = new Float32Array(w*h);
+    const edge = new Float32Array(w*h);
+    const data = state.src.data;
+    for(let y=1;y<h-1;y++){
+      const base = y*w;
+      for(let x=1;x<w-1;x++){
+        const i = (base+x)*4;
+        const gx = data[idx(x+1,y,w)] - data[idx(x-1,y,w)];
+        const gy = data[idx(x,y+1,w)] - data[idx(x,y-1,w)];
+        edge[base+x] = Math.sqrt(gx*gx+gy*gy);
+        gray[base+x] = lum(data[i],data[i+1],data[i+2]);
+      }
+    }
+    state.gray = gray; state.edge = edge;
+  }
+
+  /* ---------- inicialización por modo ---------- */
+  function initMode(){
+    if(!state.src) return;
+    buildMaps();
+    const w = state.w, h = state.h;
+
+    if(state.mode === 'string'){
+      const cands = [];
+      const step = Math.max(1, Math.floor(Math.sqrt(w*h)/140));
+      for(let y=2;y<h-2;y+=step){
+        for(let x=2;x<w-2;x+=step){
+          if(state.edge[y*w+x] > 12) cands.push({x:x,y:y});
+        }
+      }
+      for(let i=cands.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        const t = cands[i]; cands[i] = cands[j]; cands[j] = t;
+      }
+      state.seeds = cands;
+      state.nodes = [];
+      state.cursor = 0;
+    } else if(state.mode === 'tessellation'){
+      const cols = Math.ceil(w/26), rows = Math.ceil(h/26);
+      const cells = [];
+      const cw0 = w/cols, ch0 = h/rows;
+      for(let ry=0;ry<rows;ry++){
+        for(let rx=0;rx<cols;rx++){
+          cells.push({
+            x: (rx + (Math.random()-0.5)*0.5) * cw0,
+            y: (ry + (Math.random()-0.5)*0.5) * ch0,
+            w: cw0 * (0.7 + Math.random()*0.6),
+            h: ch0 * (0.7 + Math.random()*0.6)
+          });
+        }
+      }
+      state.seeds = cells;
+      state.drawnCells = new Uint8Array(cells.length);
+      state.cursor = 0;
+    }
+
+    // lienzo limpio (opaco, para evitar fantasmas al cambiar de modo)
+    state.ctx.fillStyle = '#ffffff';
+    state.ctx.fillRect(0,0,w,h);
+    state.stroke = 0;
+    updateStats();
+  }
+
+  /* ---------- muestreo de color ---------- */
+  function sampleColor(x,y){
+    if(!state.src) return [255,255,255,255];
+    const sx = clamp(Math.floor((x/state.w)*state.src.w),0,state.src.w-1);
+    const sy = clamp(Math.floor((y/state.h)*state.src.h),0,state.src.h-1);
+    const i = idx(sx,sy,state.src.w);
+    const d = state.src.data;
+    return [d[i],d[i+1],d[i+2],d[i+3]];
+  }
+  function avgColorBox(x,y,wdt,hgt){
+    let r=0,g=0,b=0,a=0,n=0;
+    for(let dy=-1;dy<=1;dy++){
+      for(let dx=-1;dx<=1;dx++){
+        const c = sampleColor(x + (wdt*dx/2), y + (hgt*dy/2));
+        r+=c[0]; g+=c[1]; b+=c[2]; a+=c[3]; n++;
+      }
+    }
+    return [r/n,g/n,b/n,a/n];
+  }
+
+  function dot(x,y,radius,color){
+    const ctx = state.ctx;
+    ctx.fillStyle = 'rgba(' + color[0] + ',' + color[1] + ',' + color[2] + ',' + (color[3]/255) + ')';
+    ctx.beginPath(); ctx.arc(x,y,radius,0,Math.PI*2); ctx.fill();
+  }
+
+  /* ---------- motores de dibujo (un paso por frame) ---------- */
+  function stepStippling(){
+    const w = state.w, h = state.h;
+    const gray = state.gray;
+    const batch = Math.ceil(BATCH_BASE * state.speed * state.density);
+    const ctx = state.ctx;
+    for(let i=0;i<batch;i++){
+      const x = Math.random()*w, y = Math.random()*h;
+      const g = gray[clamp(Math.floor(y),0,h-1)*w + clamp(Math.floor(x),0,w-1)];
+      const weight = (255 - g) / 255; // más oscuro = más puntos
+      if(Math.random() > weight * 0.8 * state.density) continue;
+      const c = sampleColor(x,y);
+      dot(x,y, 0.7 + Math.random()*1.6 * state.density, c);
+      state.stroke++;
+    }
+  }
+
+  function stepOil(){
+    const w = state.w, h = state.h;
+    const edge = state.edge;
+    const batch = Math.ceil(24 * state.speed * state.density);
+    const ctx = state.ctx;
+    ctx.lineCap = 'round';
+    for(let i=0;i<batch;i++){
+      const x = 1 + Math.random()*(w-2), y = 1 + Math.random()*(h-2);
+      const xi = clamp(Math.floor(x),0,w-1), yi = clamp(Math.floor(y),0,h-1);
+      const e = edge[yi*w + xi];
+      if(e < 3) continue; // zonas planas sin trazo
+      const gx = grayAt(xi+1,yi) - grayAt(xi-1,yi);
+      const gy = grayAt(xi,yi+1) - grayAt(xi,yi-1);
+      const ang = Math.atan2(gy, gx) + Math.PI/2; // tangente al borde
+      const len = clamp(6 + (e/45)*24, 8, 32) * state.density;
+      const dx = Math.cos(ang)*len, dy = Math.sin(ang)*len;
+      const c = sampleColor(x,y);
+      ctx.beginPath();
+      ctx.moveTo(x-dx, y-dy); ctx.lineTo(x+dx, y+dy);
+      ctx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + clamp(0.25 + (e/150)*0.5,0,1) + ')';
+      ctx.lineWidth = clamp(1.2 + e/22, 1.5, 6) * state.density;
+      ctx.stroke();
+      state.stroke++;
+    }
+    function grayAt(xx,yy){ return state.gray[clamp(yy,0,h-1)*w + clamp(xx,0,w-1)]; }
+  }
+
+  function stepString(){
+    const w = state.w, h = state.h;
+    const cands = state.seeds; const nodes = state.nodes;
+    const batch = Math.ceil(12 * state.speed * state.density);
+    const ctx = state.ctx;
+    ctx.lineCap = 'round';
+    if(nodes.length === 0 && cands.length){
+      const p = cands[state.cursor++ % cands.length];
+      nodes.push({x:p.x,y:p.y});
+    }
+    for(let i=0;i<batch && state.cursor < cands.length;i++){
+      const p = cands[state.cursor++];
+      let nx = p.x + (Math.random()-0.5)*6, ny = p.y + (Math.random()-0.5)*6;
+      nx = clamp(nx,0,w); ny = clamp(ny,0,h);
+      let links = 0;
+      for(let k=nodes.length-1;k>=0 && links<2;k--){
+        const q = nodes[k];
+        const d = Math.hypot(nx-q.x, ny-q.y);
+        if(d > 16 && d < 240){
+          const c = sampleColor(nx,ny);
+          ctx.beginPath(); ctx.moveTo(q.x,q.y); ctx.lineTo(nx,ny);
+          ctx.strokeStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.2)';
+          ctx.lineWidth = 0.9;
+          ctx.stroke();
+          links++;
+        }
+      }
+      dot(nx,ny,1.5,sampleColor(nx,ny));
+      nodes.push({x:nx,y:ny});
+      state.stroke++;
+    }
+  }
+
+  function stepTessellation(){
+    const cells = state.seeds; const drawn = state.drawnCells;
+    const batch = Math.ceil(16 * state.speed * state.density);
+    const ctx = state.ctx;
+    for(let i=0;i<batch;i++){
+      let ci = -1;
+      for(let k=0;k<cells.length;k++){
+        const cidx = (state.cursor + k) % cells.length;
+        if(!drawn[cidx]){ ci = cidx; state.cursor = (cidx + 1) % cells.length; break; }
+      }
+      if(ci === -1) break;
+      drawn[ci] = 1;
+      const cell = cells[ci];
+      const cx = cell.x + cell.w/2, cy = cell.y + cell.h/2;
+      const c = avgColorBox(cell.x, cell.y, cell.w, cell.h);
+      ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + clamp(c[3]/255*0.92,0,1) + ')';
+      ctx.beginPath();
+      ctx.moveTo(cx, cell.y);
+      ctx.lineTo(cell.x + cell.w, cy);
+      ctx.lineTo(cx, cell.y + cell.h);
+      ctx.lineTo(cell.x, cy);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+      ctx.lineWidth = 0.6; ctx.stroke();
+      state.stroke++;
+    }
+  }
+
+  /* ---------- bucle principal (60 FPS) ---------- */
+  function step(){
+    switch(state.mode){
+      case 'stippling': stepStippling(); break;
+      case 'oil': stepOil(); break;
+      case 'string': stepString(); break;
+      case 'tessellation': stepTessellation(); break;
+    }
+  }
+
+  let last = performance.now(), acc = 0;
+  let fpsFrames = 0, fpsTime = 0;
+  function loop(now){
+    const dt = now - last; last = now;
+    if(state.ready && state.running){
+      acc += dt;
+      const tick = 1000/60;
+      while(acc >= tick){ acc -= tick; step(); }
+    }
+    fpsFrames++; fpsTime += dt;
+    if(fpsTime >= 1000){ els.statFps.textContent = fpsFrames; fpsFrames = 0; fpsTime = 0; }
+    updateStats();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  function updateStats(){
+    els.statStroke.textContent = state.stroke.toLocaleString();
+    els.statMode.textContent = ({
+      stippling:'Puntillismo Adaptativo',
+      oil:'Pinceladas de Óleo',
+      string:'Hilorama / Constelaciones',
+      tessellation:'Teselado Geométrico'
+    })[state.mode] || '-';
+  }
+
+  /* ---------- controles ---------- */
+  els.mode.addEventListener('change', function(){
+    if(!state.ready) return;
+    state.mode = els.mode.value;
+    initMode();
+    els.hud.textContent = 'Modo cambiado · lienzo reiniciado.';
+  });
+  els.density.addEventListener('input', function(){
+    state.density = parseFloat(els.density.value);
+    els.valDensity.textContent = state.density.toFixed(1) + '×';
+  });
+  els.speed.addEventListener('input', function(){
+    state.speed = parseInt(els.speed.value,10);
+    els.valSpeed.textContent = state.speed + '×';
+  });
+  els.btnPause.addEventListener('click', function(){
+    if(!state.ready) return;
+    state.running = !state.running;
+    els.btnPause.textContent = state.running ? 'Pausar' : 'Reanudar';
+    els.hud.textContent = state.running ? 'Dibujando…' : 'Pausado.';
+  });
+  els.btnReset.addEventListener('click', function(){
+    if(!state.ready) return;
+    initMode();
+    els.btnPause.textContent = 'Pausar';
+    state.running = false;
+    els.hud.textContent = 'Lienzo reiniciado · pulsa Reanudar.';
+  });
+  els.btnExport.addEventListener('click', function(){
+    if(!state.ready){ alert('Carga una imagen primero.'); return; }
+    const exp = document.createElement('canvas');
+    exp.width = state.w; exp.height = state.h;
+    const ex = exp.getContext('2d');
+    ex.fillStyle = '#ffffff'; ex.fillRect(0,0,state.w,state.h);
+    ex.drawImage(canvas,0,0);
+    const link = document.createElement('a');
+    link.download = 'canvasforge-' + state.mode + '.png';
+    link.href = exp.toDataURL('image/png');
+    link.click();
+    els.hud.textContent = 'Exportación iniciada.';
+  });
+
+  initMode();
+})();
+</script>
+</body>
+</html>
